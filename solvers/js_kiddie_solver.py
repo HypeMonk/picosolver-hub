@@ -5,7 +5,9 @@ import io
 import zlib
 import struct
 from PIL import Image
-from pyzbar.pyzbar import decode
+import cv2
+import numpy as np
+import io
 
 LEN = 16
 PNG_HEADER = b"\x89PNG\x0d\x0a\x1a\x0a"
@@ -95,17 +97,22 @@ def web_solve(params):
             # Fast check: skip clearly invalid PNGs
             if not png.startswith(PNG_HEADER): continue
             
-            # Ultimate Truth Filter: Try to decode QR!
+            # Ultimate Truth Filter: Try to decode QR using OpenCV!
             try:
-                img = Image.open(io.BytesIO(png))
-                decoded = decode(img)
-                if decoded:
-                    flag = decoded[0].data.decode('utf-8')
+                # Decrypt raw bytes to OpenCV image
+                nparr = np.frombuffer(png, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img is None: continue
+                
+                # Use OpenCV's built-in QR detector
+                detector = cv2.QRCodeDetector()
+                data, _, _ = detector.detectAndDecode(img)
+                if data:
                     log.append(f"[SUCCESS] Mathematical & Scanner Match: {key}")
                     img_b64 = base64.b64encode(png).decode('utf-8')
                     return {
                         "success": True, 
-                        "flag": flag,
+                        "flag": data,
                         "qr_data": f"data:image/png;base64,{img_b64}",
                         "log": "\n".join(log)
                     }
