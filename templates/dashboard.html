@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PicoSolver Hub | Professional CTF Automation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>PicoSolver Hub</h1>
+        <p>Dynamic Multi-Challenge Flag Extraction Dashboard</p>
+    </header>
+
+    <div class="grid">
+        {% for challenge in challenges %}
+        <div class="card" onclick="openSolver('{{ challenge.id }}', '{{ challenge.name }}', '{{ challenge.type }}')">
+            <span class="badge">{{ challenge.type }}</span>
+            <h3>{{ challenge.name }}</h3>
+            <p>{{ challenge.desc }}</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div id="overlay">
+    <div class="modal">
+        <button class="close-btn" onclick="closeSolver()">&times;</button>
+        <div class="modal-header">
+            <h2 id="modal-title">Challenge Solver</h2>
+        </div>
+
+        <form id="solve-form">
+            <div id="input-fields"></div>
+            <button type="submit" class="solve-btn" id="solve-btn">Run Exploit</button>
+        </form>
+
+        <div id="qr-container">
+            <p class="info">Reconstructed Identity:</p>
+            <img id="qr-image" src="" alt="QR Code">
+        </div>
+
+        <div class="terminal" id="terminal">
+            <span class="info">[*] Ready to analyze...</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentChallenge = null;
+
+    function openSolver(id, name, type) {
+        currentChallenge = id;
+        document.getElementById('modal-title').innerText = name;
+        document.getElementById('overlay').style.display = 'flex';
+        document.getElementById('terminal').innerHTML = '<span class="info">[*] Ready to analyze...</span>';
+        
+        let fields = document.getElementById('input-fields');
+        fields.innerHTML = '';
+
+        if(['web'].includes(type) || type === 'web') {
+            fields.innerHTML = `
+                <div class="input-group">
+                    <label>Unique Challenge URL</label>
+                    <input type="text" name="url" placeholder="http://saturn.picoctf.net:12345/" required>
+                </div>`;
+        } else if(type === 'timing') {
+            fields.innerHTML = `
+                <div class="input-group">
+                    <label>Remote Server (e.g. saturn.picoctf.net 51795)</label>
+                    <input type="text" name="url" placeholder="saturn.picoctf.net 51795" required>
+                </div>
+                <p style="color:#facc15; font-size:0.75rem; margin-top:5px;">
+                    ⚡ Side-channel extraction takes ~18-30 seconds. Tracking progress live...
+                </p>`;
+        } else if(type === 'file') {
+            fields.innerHTML = `
+                <div class="input-group">
+                    <label>Upload Data File (.wav, .pcap)</label>
+                    <input type="file" name="files" required>
+                </div>`;
+        } else if(type === 'multi_file') {
+            fields.innerHTML = `
+                <div class="input-group">
+                    <label>Upload BMP Files (select all 5 at once)</label>
+                    <input type="file" name="files" multiple required>
+                </div>`;
+        } else if(type === 'static') {
+            fields.innerHTML = `<p style="color:#94a3b8; font-size:0.85rem;">
+                This challenge uses a universal static flag. Just click Run Exploit!
+            </p>`;
+        }
+        document.getElementById('qr-container').style.display = 'none';
+    }
+
+    function closeSolver() {
+        document.getElementById('overlay').style.display = 'none';
+    }
+
+    document.getElementById('solve-form').onsubmit = async (e) => {
+        e.preventDefault();
+        if(!currentChallenge) return;
+
+        const btn = document.getElementById('solve-btn');
+        const terminal = document.getElementById('terminal');
+        const qrContainer = document.getElementById('qr-container');
+        const qrImage = document.getElementById('qr-image');
+
+        btn.innerText = "CRACKING IN PROGRESS...";
+        btn.disabled = true;
+        terminal.innerHTML = `<span class="info">[*] Handshaking with automated solver for ${currentChallenge}...</span>`;
+        qrContainer.style.display = 'none';
+
+        const formData = new FormData(e.target);
+        formData.append('id', currentChallenge); // Ensure 'id' matches app.py
+
+        try {
+            let startResp = await fetch('/solve', { method: 'POST', body: formData });
+            let startData = await startResp.json();
+            
+            if (!startData.success) {
+                terminal.innerHTML += `<br><span style="color:#ff6b6b">[!] Error: ${startData.error}</span>`;
+                btn.innerText = "Run Exploit"; btn.disabled = false;
+                return;
+            }
+
+            const taskId = startData.task_id;
+            
+            const pollInterval = setInterval(async () => {
+                try {
+                    let statusResp = await fetch(`/status/${taskId}`);
+                    let task = await statusResp.json();
+                    
+                    let currentLog = task.log || task.error || '[*] Initializing...';
+                    terminal.innerHTML = currentLog.replace(/\n/g, '<br>');
+                    terminal.scrollTop = terminal.scrollHeight;
+                    
+                    if (task.status === 'completed') {
+                        clearInterval(pollInterval);
+                        const res = task.result;
+                        if(res.success) {
+                            terminal.innerHTML += `<br><span class="success">[🚩 FLAG]: ${res.flag}</span>`;
+                            if(res.qr_data) {
+                                qrImage.src = res.qr_data;
+                                qrContainer.style.display = 'block';
+                            }
+                        } else {
+                            terminal.innerHTML += `<br><span style="color:#ff6b6b">[FAILED] ${res.error}</span>`;
+                        }
+                        btn.innerText = "Run Exploit"; btn.disabled = false;
+                    } else if (task.status === 'failed') {
+                        clearInterval(pollInterval);
+                        terminal.innerHTML += `<br><span style="color:#ff6b6b">[CRITICAL ERROR] ${task.error}</span>`;
+                        btn.innerText = "Run Exploit"; btn.disabled = false;
+                    }
+                } catch (pe) {
+                    // Fail silently for single-ping errors
+                }
+            }, 800);
+
+        } catch (err) {
+            terminal.innerHTML += `<br><span style="color:#ff6b6b">[!] Connection failed: ${err.message}</span>`;
+            btn.innerText = "Run Exploit"; btn.disabled = false;
+        }
+    };
+</script>
+</body>
+</html>
