@@ -101,8 +101,12 @@ def web_solve(params):
             try:
                 # Decrypt raw bytes to OpenCV image
                 nparr = np.frombuffer(png, np.uint8)
-                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
                 if img is None: continue
+                
+                # SUPER-SCAN: Upscale the image for 100% reliable detection
+                h, w = img.shape
+                img = cv2.resize(img, (w*3, h*3), interpolation=cv2.INTER_NEAREST)
                 
                 # Use OpenCV's built-in QR detector
                 detector = cv2.QRCodeDetector()
