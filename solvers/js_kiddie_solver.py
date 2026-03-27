@@ -89,15 +89,15 @@ def web_solve(params):
 
         log.append("[*] Solving key via Scanning Filter (this may take a moment)...")
         
-        # 2. Brute force with full QR decoding check
+        # 2. Brute force with Mathematical CRC check + QR scanning filter
         for combo in itertools.product(*possibilities):
             key = "".join(str(s) for s in combo)
             png = assemble_png(key, byte_list)
             
-            # Fast check: skip clearly invalid PNGs
-            if not png.startswith(PNG_HEADER): continue
+            # TURBO FILTER: Fast mathematical validation first!
+            if not is_valid_png_mathematically(png): continue
             
-            # Ultimate Truth Filter: Try to decode QR using OpenCV!
+            # Only if the Math passes, we use the heavy OpenCV Eye
             try:
                 # Decrypt raw bytes to OpenCV image
                 nparr = np.frombuffer(png, np.uint8)
