@@ -72,5 +72,10 @@ def get_status(task_id):
         return jsonify({"success": False, "error": "Task not found"}), 404
     return jsonify(task)
 
+@app.route('/health')
+def health():
+    return jsonify({"status": "alive"}), 200
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    port = int(os.environ.get('PORT', 5001))
+    app.run(host='0.0.0.0', port=port, debug=False)
